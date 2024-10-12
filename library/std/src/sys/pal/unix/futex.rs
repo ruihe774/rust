@@ -8,6 +8,7 @@
     target_os = "fuchsia",
 ))]
 
+use super::time::Timespec;
 use crate::sync::atomic::AtomicU32;
 use crate::time::Duration;
 
@@ -16,6 +17,12 @@ pub type SmallAtomic = AtomicU32;
 /// Must be the underlying type of SmallAtomic
 pub type SmallPrimitive = u32;
 
+pub fn make_timespec(timeout: Option<Duration>) -> Option<libc::timespec> {
+    timeout
+        .and_then(|d| Timespec::now(libc::CLOCK_MONOTONIC).checked_add_duration(&d))
+        .and_then(|t| t.to_timespec())
+}
+
 /// Waits for a `futex_wake` operation to wake us.
 ///
 /// Returns directly if the futex doesn't hold the expected value.
@@ -23,7 +30,6 @@ pub type SmallPrimitive = u32;
 /// Returns false on timeout, and true in all other cases.
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
 pub fn futex_wait(futex: &AtomicU32, expected: u32, timeout: Option<Duration>) -> bool {
-    use super::time::Timespec;
     use crate::ptr::null;
     use crate::sync::atomic::Ordering::Relaxed;
     use crate::sys::cvt;
@@ -31,9 +37,7 @@ pub fn futex_wait(futex: &AtomicU32, expected: u32, timeout: Option<Duration>) -
     // Calculate the timeout as an absolute timespec.
     //
     // Overflows are rounded up to an infinite timeout (None).
-    let timespec = timeout
-        .and_then(|d| Timespec::now(libc::CLOCK_MONOTONIC).checked_add_duration(&d))
-        .and_then(|t| t.to_timespec());
+    let timespec = make_timespec(timeout);
 
     loop {
         // No need to wait if the value already changed.

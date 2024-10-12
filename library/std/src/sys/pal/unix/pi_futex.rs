@@ -1,8 +1,10 @@
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux {
+    use super::super::futex::make_timespec;
     use crate::ops::Deref;
     use crate::sync::atomic::AtomicU32;
     use crate::sys::cvt;
+    use crate::time::Duration;
     use crate::{io, ptr};
 
     pub type State = u32;
@@ -67,6 +69,62 @@ mod linux {
             )
         })
         .map(|_| ())
+    }
+
+    /// Wakes zero or one waiters from non-PI `futex`, and if `requeue` is true, requeue the remaining to PI `futex2`
+    /// if the value of `futex` equals `expected`.
+    pub fn futex_requeue(
+        futex: &AtomicU32,
+        expected: u32,
+        futex2: &AtomicU32,
+        requeue: bool,
+    ) -> io::Result<()> {
+        loop {
+            match cvt(unsafe {
+                libc::syscall(
+                    libc::SYS_futex,
+                    ptr::from_ref(futex), // non-PI source futex
+                    libc::FUTEX_CMP_REQUEUE_PI | libc::FUTEX_PRIVATE_FLAG,
+                    1, // number of waiter to wake: must be 1
+                    if requeue { i32::MAX } else { 0 },
+                    ptr::from_ref(futex2), // PI target futex
+                    expected,
+                )
+            }) {
+                Ok(_) => return Ok(()),
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Waits on non-PI `futex` until `futex != expected` while requeuable to PI `futex2`.
+    pub fn futex_wait_requeue(
+        futex: &AtomicU32,
+        expected: u32,
+        futex2: &AtomicU32,
+        timeout: Option<Duration>,
+    ) -> io::Result<bool> {
+        let timespec = make_timespec(timeout);
+        loop {
+            match cvt(unsafe {
+                libc::syscall(
+                    libc::SYS_futex,
+                    ptr::from_ref(futex), // non-PI source futex
+                    libc::FUTEX_WAIT_REQUEUE_PI | libc::FUTEX_PRIVATE_FLAG,
+                    expected,
+                    timespec.as_ref().map_or(ptr::null(), ptr::from_ref),
+                    ptr::from_ref(futex2), // PI target futex
+                )
+            }) {
+                Ok(_) => return Ok(true),
+                Err(e) => match e.raw_os_error() {
+                    Some(libc::ETIMEDOUT) => return Ok(false),
+                    Some(libc::EINTR) => continue,
+                    _ => return Err(e),
+                },
+            }
+        }
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::sync::atomic::AtomicU32;
 use crate::sync::atomic::Ordering::Relaxed;
-use crate::sys::futex::{futex_wait, futex_wake, futex_wake_all};
-use crate::sys::sync::Mutex;
+use crate::sys::sync::{Mutex, Requeuer};
 use crate::time::Duration;
 
 pub struct Condvar {
@@ -9,25 +8,28 @@ pub struct Condvar {
     // This is used by `.wait()` to not miss any notifications after
     // unlocking the mutex and before waiting for notifications.
     futex: AtomicU32,
+    requeuer: Requeuer,
 }
 
 impl Condvar {
     #[inline]
     pub const fn new() -> Self {
-        Self { futex: AtomicU32::new(0) }
+        Self { futex: AtomicU32::new(0), requeuer: Requeuer::new() }
     }
 
     // All the memory orderings here are `Relaxed`,
     // because synchronization is done by unlocking and locking the mutex.
 
     pub fn notify_one(&self) {
-        self.futex.fetch_add(1, Relaxed);
-        futex_wake(&self.futex);
+        let expected = self.futex.fetch_add(1, Relaxed).wrapping_add(1);
+        self.requeuer.wake_one(expected, &self.futex);
     }
 
     pub fn notify_all(&self) {
-        self.futex.fetch_add(1, Relaxed);
-        futex_wake_all(&self.futex);
+        let expected = self.futex.fetch_add(1, Relaxed).wrapping_add(1);
+        // Waking all: may cause thundering-herd formation.
+        // So we instead wake one and requeue remaining.
+        self.requeuer.wake_one_and_requeue_other(expected, &self.futex);
     }
 
     pub unsafe fn wait(&self, mutex: &Mutex) {
@@ -47,10 +49,16 @@ impl Condvar {
 
         // Wait, but only if there hasn't been any
         // notification since we unlocked the mutex.
-        let r = futex_wait(&self.futex, futex_value, timeout);
+        let r = self.requeuer.wait_requeuable(futex_value, &self.futex, timeout);
 
         // Lock the mutex again.
         mutex.lock();
+
+        if r {
+            // This also wakes one requeued waiter.
+            // And that waiter will then wake next.
+            self.requeuer.wake_another();
+        }
 
         r
     }

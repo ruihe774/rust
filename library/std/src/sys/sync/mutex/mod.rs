@@ -5,7 +5,7 @@ cfg_if::cfg_if! {
         target_os = "freebsd",
     ))] {
         mod pi_futex;
-        pub use pi_futex::Mutex;
+        pub use pi_futex::{Requeuer, Mutex};
     } else if #[cfg(any(
         all(target_os = "windows", not(target_vendor = "win7")),
         target_os = "openbsd",
