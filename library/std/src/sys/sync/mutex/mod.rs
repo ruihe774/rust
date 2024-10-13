@@ -14,7 +14,7 @@ cfg_if::cfg_if! {
         target_os = "hermit",
     ))] {
         mod futex;
-        pub use futex::Mutex;
+        pub use futex::{Requeuer, Mutex};
     } else if #[cfg(target_os = "fuchsia")] {
         mod fuchsia;
         pub use fuchsia::Mutex;

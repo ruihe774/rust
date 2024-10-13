@@ -8,7 +8,6 @@
     target_os = "fuchsia",
 ))]
 
-use super::time::Timespec;
 use crate::sync::atomic::AtomicU32;
 use crate::time::Duration;
 
@@ -17,7 +16,9 @@ pub type SmallAtomic = AtomicU32;
 /// Must be the underlying type of SmallAtomic
 pub type SmallPrimitive = u32;
 
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
 pub fn make_timespec(timeout: Option<Duration>) -> Option<libc::timespec> {
+    use super::time::Timespec;
     timeout
         .and_then(|d| Timespec::now(libc::CLOCK_MONOTONIC).checked_add_duration(&d))
         .and_then(|t| t.to_timespec())
