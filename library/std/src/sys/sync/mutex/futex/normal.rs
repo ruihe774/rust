@@ -5,7 +5,7 @@ type Atomic = futex::SmallAtomic;
 type State = futex::SmallPrimitive;
 
 pub struct Mutex {
-    futex: Atomic,
+    pub futex: Atomic,
 }
 
 const UNLOCKED: State = 0;
@@ -91,99 +91,7 @@ impl Mutex {
     }
 
     #[cold]
-    fn wake(&self) {
+    pub fn wake(&self) {
         futex_wake(&self.futex);
     }
 }
-
-#[cfg(not(target_os = "openbsd"))]
-mod fallback_requeuer {
-    use crate::sync::atomic::AtomicU32;
-    use crate::sys::futex::{futex_wait, futex_wake, futex_wake_all};
-    use crate::time::Duration;
-
-    pub struct Requeuer;
-
-    impl Requeuer {
-        #[inline]
-        pub const fn new() -> Requeuer {
-            Requeuer
-        }
-
-        #[inline]
-        pub fn wake_one(&self, expected: u32, from: &AtomicU32) {
-            let _ = expected;
-            futex_wake(from);
-        }
-
-        #[inline]
-        pub fn wake_one_and_requeue_other(&self, expected: u32, from: &AtomicU32) {
-            let _ = expected;
-            futex_wake_all(from);
-        }
-
-        #[inline]
-        pub fn wait_requeuable(
-            &self,
-            expected: u32,
-            from: &AtomicU32,
-            timeout: Option<Duration>,
-        ) -> bool {
-            futex_wait(from, expected, timeout)
-        }
-
-        #[inline]
-        pub unsafe fn wake_another(&self) {}
-    }
-}
-
-#[cfg(not(target_os = "openbsd"))]
-pub use fallback_requeuer::Requeuer;
-
-#[cfg(target_os = "openbsd")]
-mod futex_requeuer {
-    use super::Mutex;
-    use crate::sync::atomic::AtomicU32;
-    use crate::sys::futex::{futex_requeue, futex_wait, futex_wake};
-    use crate::time::Duration;
-
-    pub struct Requeuer(Mutex);
-
-    impl Requeuer {
-        #[inline]
-        pub const fn new() -> Requeuer {
-            Requeuer(Mutex::new())
-        }
-
-        #[inline]
-        pub fn wake_one(&self, expected: u32, from: &AtomicU32) {
-            let _ = expected;
-            futex_wake(from);
-        }
-
-        #[inline]
-        pub fn wake_one_and_requeue_other(&self, expected: u32, from: &AtomicU32) {
-            let _ = expected;
-            futex_requeue(from, &self.0.futex);
-            self.0.lock();
-        }
-
-        #[inline]
-        pub fn wait_requeuable(
-            &self,
-            expected: u32,
-            from: &AtomicU32,
-            timeout: Option<Duration>,
-        ) -> bool {
-            futex_wait(from, expected, timeout)
-        }
-
-        #[inline]
-        pub unsafe fn wake_another(&self) {
-            self.0.wake();
-        }
-    }
-}
-
-#[cfg(target_os = "openbsd")]
-pub use futex_requeuer::Requeuer;

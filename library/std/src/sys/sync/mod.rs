@@ -6,7 +6,7 @@ mod rwlock;
 mod thread_parking;
 
 pub use condvar::Condvar;
-pub use mutex::{Mutex, Requeuer};
+pub use mutex::*;
 pub use once::{Once, OnceState};
 #[allow(unused)] // Only used on some platforms.
 use once_box::OnceBox;
