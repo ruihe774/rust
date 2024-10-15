@@ -39,11 +39,13 @@
 
 use crate::sync::atomic::AtomicU32;
 use crate::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+use crate::sys::futex::futex_wait;
 use crate::sys::futex::zircon::{
     ZX_ERR_BAD_HANDLE, ZX_ERR_BAD_STATE, ZX_ERR_INVALID_ARGS, ZX_ERR_TIMED_OUT, ZX_ERR_WRONG_TYPE,
-    ZX_OK, ZX_TIME_INFINITE, zx_futex_wait, zx_futex_wake_single_owner, zx_handle_t,
-    zx_thread_self,
+    ZX_HANDLE_INVALID, ZX_OK, ZX_TIME_INFINITE, zx_futex_requeue, zx_futex_wait,
+    zx_futex_wake_single_owner, zx_handle_t, zx_thread_self,
 };
+use crate::time::Duration;
 
 // The lowest two bits of a `zx_handle_t` are always set, so the lowest bit is used to mark the
 // mutex as contested by clearing it.
@@ -153,10 +155,57 @@ impl Mutex {
         }
     }
 
+    #[inline]
+    unsafe fn mark_contended(&self) {
+        let thread_self = unsafe { zx_thread_self() };
+        self.futex.store(mark_contested(to_state(thread_self)), Relaxed);
+    }
+
     #[cold]
     fn wake(&self) {
         unsafe {
             zx_futex_wake_single_owner(&self.futex);
         }
+    }
+}
+
+pub struct Requeuer(Mutex);
+
+impl Requeuer {
+    #[inline]
+    pub const fn new() -> Requeuer {
+        Requeuer(Mutex::new())
+    }
+
+    #[inline]
+    pub fn wake_one(&self, expected: u32, from: &AtomicU32) {
+        unsafe { zx_futex_requeue(from, 1, expected.into(), &self.0.futex, 0, ZX_HANDLE_INVALID) };
+    }
+
+    #[inline]
+    pub fn wake_one_and_requeue_other(&self, expected: u32, from: &AtomicU32) {
+        unsafe {
+            zx_futex_requeue(from, 1, expected.into(), &self.0.futex, u32::MAX, ZX_HANDLE_INVALID)
+        };
+    }
+
+    #[inline]
+    pub fn wait_requeuable(
+        &self,
+        expected: u32,
+        from: &AtomicU32,
+        timeout: Option<Duration>,
+    ) -> bool {
+        let r = futex_wait(from, expected, timeout);
+        if r {
+            self.0.lock();
+            unsafe { self.0.mark_contended() };
+        }
+        r
+    }
+
+    #[inline]
+    pub unsafe fn wake_another(&self) {
+        unsafe { self.0.unlock() };
     }
 }

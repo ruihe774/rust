@@ -13,7 +13,7 @@ cfg_if::cfg_if! {
         pub use futex::{Requeuer, Mutex};
     } else if #[cfg(target_os = "fuchsia")] {
         mod fuchsia;
-        pub use fuchsia::Mutex;
+        pub use fuchsia::{Requeuer, Mutex};
     } else if #[cfg(any(
         target_family = "unix",
         target_os = "teeos",

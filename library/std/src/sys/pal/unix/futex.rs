@@ -300,6 +300,14 @@ pub mod zircon {
         pub fn zx_futex_wake(value_ptr: *const zx_futex_t, wake_count: u32) -> zx_status_t;
         pub fn zx_futex_wake_single_owner(value_ptr: *const zx_futex_t) -> zx_status_t;
         pub fn zx_thread_self() -> zx_handle_t;
+        pub fn zx_futex_requeue(
+            value_ptr: *const zx_futex_t,
+            wake_count: u32,
+            current_value: zx_futex_t,
+            requeue_ptr: *const zx_futex_t,
+            requeue_count: u32,
+            new_requeue_owner: zx_handle_t,
+        ) -> zx_status_t;
     }
 }
 
