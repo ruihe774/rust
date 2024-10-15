@@ -21,7 +21,6 @@ impl Requeuer {
     pub fn wake_one_and_requeue_other(&self, expected: u32, from: &AtomicU32) {
         let _ = expected;
         futex_requeue(from, &self.0.futex);
-        self.0.lock();
     }
 
     #[inline]
@@ -31,11 +30,16 @@ impl Requeuer {
         from: &AtomicU32,
         timeout: Option<Duration>,
     ) -> bool {
-        futex_wait(from, expected, timeout)
+        let r = futex_wait(from, expected, timeout);
+        if r {
+            self.0.lock();
+            unsafe { self.0.mark_contended() };
+        }
+        r
     }
 
     #[inline]
     pub unsafe fn wake_another(&self) {
-        self.0.wake();
+        unsafe { self.0.unlock() };
     }
 }

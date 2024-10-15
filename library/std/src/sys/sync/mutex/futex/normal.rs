@@ -90,6 +90,12 @@ impl Mutex {
         }
     }
 
+    #[cfg(target_os = "openbsd")]
+    #[inline]
+    pub unsafe fn mark_contended(&self) {
+        self.futex.store(CONTENDED, Relaxed);
+    }
+
     #[cold]
     pub fn wake(&self) {
         futex_wake(&self.futex);
