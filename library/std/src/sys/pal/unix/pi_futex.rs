@@ -79,7 +79,7 @@ mod linux {
         expected: u32,
         futex2: &Futex,
         requeue: bool,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         loop {
             match cvt(unsafe {
                 libc::syscall(
@@ -92,9 +92,15 @@ mod linux {
                     expected,
                 )
             }) {
-                Ok(_) => return Ok(()),
-                Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
-                Err(e) => return Err(e),
+                Ok(_) => return Ok(true),
+                Err(e) => match e.raw_os_error() {
+                    // Interrupted by a signal.
+                    Some(libc::EINTR) => continue,
+                    // The futex value has changed before waiting.
+                    Some(libc::EAGAIN) => return Ok(false),
+                    // Other errors.
+                    _ => return Err(e),
+                },
             }
         }
     }

@@ -13,13 +13,13 @@ impl Requeuer {
 
     #[inline]
     pub fn wake_one(&self, expected: u32, from: &AtomicU32) {
-        pi::futex_requeue(from, expected, &self.0.futex, false)
+        let _ = pi::futex_requeue(from, expected, &self.0.futex, false)
             .expect("failed to requeue futex waiters");
     }
 
     #[inline]
     pub fn wake_one_and_requeue_other(&self, expected: u32, from: &AtomicU32) {
-        pi::futex_requeue(from, expected, &self.0.futex, true)
+        let _ = pi::futex_requeue(from, expected, &self.0.futex, true)
             .expect("failed to requeue futex waiters");
     }
 
